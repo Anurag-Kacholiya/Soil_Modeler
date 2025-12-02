@@ -87,7 +87,11 @@ def render_center_panel():
 
         st.markdown("---")
         st.markdown("#### Spectral Profiles")
-        st.plotly_chart(plot_spectral_profiles_interactive(X_prep), use_container_width=True)
+        st.plotly_chart(plot_spectral_profiles_interactive(
+            X_prep,
+            band_names=st.session_state.band_names,
+            preprocess_key=selected["preprocessing_key"]
+        ),use_container_width=True)
 
     # TAB 3: Hyperparameters
     with tab3:

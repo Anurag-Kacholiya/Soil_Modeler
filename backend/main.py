@@ -459,10 +459,17 @@ def plot_property_correlation_interactive(X_prep, y_data, band_names):
     return fig
 
 
-def plot_spectral_profiles_interactive(X_prep, y_data=None, band_names=None, n_samples=12):
-    """Interactive spectral signatures for random samples."""
+def plot_spectral_profiles_interactive(X_prep, band_names=None, preprocess_key="reflectance", n_samples=12):
     if band_names is None:
         band_names = list(X_prep.columns)
+
+    y_label_map = {
+        "reflectance": "Reflectance",
+        "absorbance": "Absorbance (Log 1/R)",
+        "continuumremoval": "Continuum-Removed Signal"
+    }
+
+    y_label = y_label_map.get(preprocess_key.lower(), "Processed Value")
 
     n_samples = min(n_samples, len(X_prep))
     indices = np.random.choice(len(X_prep), n_samples, replace=False)
@@ -470,7 +477,7 @@ def plot_spectral_profiles_interactive(X_prep, y_data=None, band_names=None, n_s
     fig = go.Figure()
     for idx in indices:
         fig.add_trace(go.Scatter(
-            x=band_names,
+            x=list(range(len(band_names))),       # numeric x axis
             y=X_prep.iloc[idx, :],
             mode="lines",
             opacity=0.65,
@@ -478,13 +485,14 @@ def plot_spectral_profiles_interactive(X_prep, y_data=None, band_names=None, n_s
         ))
 
     fig.update_layout(
-        title="Random Sample Spectral Profiles",
+        title=f"Spectral Profiles ({preprocess_key})",
         xaxis_title="Wavelength (Bands)",
-        yaxis_title="Reflectance",
-        template="plotly_dark",
-        xaxis=dict(tickangle=45)
+        yaxis_title=y_label,
+        template="plotly_dark"
     )
+
     return fig
+
 
 
 def plot_band_accuracy_curve_interactive(model, X_prep, y, band_names):
