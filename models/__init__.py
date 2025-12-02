@@ -8,44 +8,40 @@ from sklearn.kernel_ridge import KernelRidge
 from sklearn.svm import SVR
 from cubist import Cubist
 
-from .pls_model import get_plsr_model
-from .cubist_model import get_cubist_model
-from .gbrt_model import get_gbrt_model
-from .krr_model import get_krr_model
-from .svr_model import get_svr_model
-
 MODEL_CONFIG = {
     'PLSR': {
         'model': PLSRegression,
         'params': [
-            {'name': 'n_components', 'type': 'int', 'min': 1, 'max': 50, 'default': 10}
+            {'name': 'n_components', 'type': 'int', 'values': list(range(1, 51)), 'default': 10}
         ]
     },
     'Cubist': {
         'model': Cubist,
-        'params': [{'name': 'n_rules', 'type': 'int', 'min': 1, 'max': 1000, 'default': 100}]
+        'params': [
+            {'name': 'n_rules', 'type': 'int', 'values': list(range(10, 501, 10)), 'default': 100}
+        ]
     },
     'GBRT': {
         'model': GradientBoostingRegressor,
         'params': [
-            {'name': 'learning_rate', 'type': 'float', 'min': 0.01, 'max': 0.5, 'default': 0.1},
-            {'name': 'n_estimators', 'type': 'int', 'min': 50, 'max': 500, 'default': 100},
-            {'name': 'max_depth', 'type': 'int', 'min': 3, 'max': 10, 'default': 3}
+            {'name': 'learning_rate', 'type': 'float', 'values': [0.01, 0.05, 0.1, 0.2, 0.3], 'default': 0.1},
+            {'name': 'n_estimators', 'type': 'int', 'values': list(range(50, 501, 50)), 'default': 100},
+            {'name': 'max_depth', 'type': 'int', 'values': list(range(2, 11)), 'default': 3}
         ]
     },
     'KRR': {
         'model': KernelRidge,
         'params': [
-            {'name': 'alpha', 'type': 'float', 'min': 0.1, 'max': 10.0, 'default': 1.0},
-            {'name': 'kernel', 'type': 'select', 'options': ['linear', 'rbf', 'poly'], 'default': 'rbf'}
+            {'name': 'alpha', 'type': 'float', 'values': [0.1, 0.5, 1.0, 2.0, 5.0], 'default': 1.0},
+            {'name': 'kernel', 'type': 'select', 'values': ['linear', 'rbf', 'poly'], 'default': 'rbf'}
         ]
     },
     'SVR': {
         'model': SVR,
         'params': [
-            {'name': 'C', 'type': 'float', 'min': 0.1, 'max': 100.0, 'default': 1.0},
-            {'name': 'epsilon', 'type': 'float', 'min': 0.01, 'max': 1.0, 'default': 0.1},
-            {'name': 'kernel', 'type': 'select', 'options': ['linear', 'rbf', 'poly'], 'default': 'rbf'}
+            {'name': 'C', 'type': 'float', 'values': [0.1, 1, 10, 50, 100], 'default': 1.0},
+            {'name': 'epsilon', 'type': 'float', 'values': [0.01, 0.05, 0.1, 0.2, 0.5], 'default': 0.1},
+            {'name': 'kernel', 'type': 'select', 'values': ['linear', 'rbf', 'poly'], 'default': 'rbf'}
         ]
     }
 }

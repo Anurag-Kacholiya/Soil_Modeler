@@ -114,26 +114,40 @@ def render_center_panel():
 
         new_params = st.session_state.edited_params
 
-        st.markdown("#### Edit Parameters")
+        # Edit Hyperparameters -------------------------------------------
+        st.markdown("#### Edit Hyperparameters")
 
         for param in hp_schema:
             name = param["name"]
             ptype = param["type"]
-            default = new_params.get(name, param.get("default"))
+            values = param.get("values", [])
+            default = selected["hyperparameters"].get(name, param.get("default"))
 
-            if ptype == "int":
-                val = st.number_input(name, value=int(default), min_value=param["min"], max_value=param["max"], step=1)
-            elif ptype == "float":
-                val = st.number_input(name, value=float(default), min_value=param["min"], max_value=param["max"], step=0.01)
+            if ptype in ["int", "float"]:
+                # Numeric values coming from list
+                if isinstance(values, list) and len(values) > 0:
+                    options = values
+                    try:
+                        idx = options.index(default)
+                    except:
+                        idx = 0
+                    new_val = st.selectbox(name, options, index=idx)
+                else:
+                    new_val = st.number_input(name, value=float(default))
+
             elif ptype == "select":
-                options = param["options"]
-                if default not in options:
-                    default = options[0]
-                val = st.selectbox(name, options, index=options.index(default))
-            else:
-                val = default
+                options = values
+                try:
+                    idx = options.index(default)
+                except:
+                    idx = 0
+                new_val = st.selectbox(name, options, index=idx)
 
-            new_params[name] = val
+            else:
+                new_val = default
+
+            new_params[name] = new_val
+
 
         st.markdown("---")
 

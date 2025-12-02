@@ -189,7 +189,7 @@ def run_full_pipeline(dataset_name, target_column_name, target_property_label,
             if progress_callback is not None:
                 progress_callback(model_name=model_name, prep_key=prep_key)
 
-            defaults = {p['name']: p['default'] for p in cfg['params']}
+            defaults = {p['name']: p['values'] for p in cfg['params']}
 
             try:
                 model_builder = cfg.get('builder') or cfg.get('model')
