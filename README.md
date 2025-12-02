@@ -1,254 +1,194 @@
-# 🌱 **Spectral Soil Modeler**
-
-### *A Streamlit-based Machine Learning System for Soil Spectral Analysis*
-
+# 🌱 Spectral Soil Modeler  
+### *A Streamlit-based Machine Learning System for Hyperspectral Soil Property Prediction*  
 ### **Team 35 — SSD Final Project**
 
 ---
 
 ## 📌 Overview
 
-**Spectral Soil Modeler** is an interactive machine learning application designed to predict soil properties using **hyperspectral reflectance data**.
+**Spectral Soil Modeler** is an interactive machine learning application designed to predict soil properties (e.g., clay, organic carbon, nutrients, moisture) from **hyperspectral reflectance data**.
 
-Users can upload spectral datasets, apply preprocessing transformations, train regression models, compare performance, visualize results, and analyze spectral characteristics.
+It replaces slow, destructive laboratory tests with a fast, non-destructive, and scalable spectral-ML pipeline. Users can upload/select datasets, apply preprocessing, run model pipelines, inspect a dynamic leaderboard, retrain models, and explore interactive visual diagnostics.
 
-This project was originally planned as a **FastAPI + MERN stack** system in Phase-1, but was redesigned into a **unified Streamlit + modular Python architecture** in Phase-2 for simplicity, speed, and better ML workflow integration.
+The project is implemented as a unified Streamlit frontend with a modular Python backend.
 
 ---
 
-# 📁 Project Structure
+## 📁 Corrected Project Structure
 
 ```
-SSD_Final_project/
+
+Soil_Modeler/
+├── app.py                    # Main Streamlit entry point (UI + navigation)
+│
 ├── backend/
-│   ├── __init__.py
-│   └── main.py               # Streamlit entry point (routing + UI control) & Core ML pipeline: loading, preprocessing, training, metrics, plots
-├── frontend/
-│   ├── __init__.py
-│   ├── landing_page.py       # Page 1 – dataset input & pipeline execution
-│   ├── results_page.py       # Page 2 – leaderboard + hyperparameter tuning
-│   └── visualization_page.py # Page 3 – Visual dashboards & plots
+│   ├── **init**.py
+│   └── main.py               # Core ML pipeline: loading, preprocessing, training, metrics, plotting helpers
+│
 ├── models/
-│   ├── __init__.py           # MODEL_CONFIG + hyperparameter metadata
+│   ├── **init**.py
 │   ├── pls_model.py          # Partial Least Squares Regression
-│   ├── cubist_model.py       # Cubist-like model
-│   ├── gbrt_model.py         # Gradient Boosting Regressor
-│   ├── krr_model.py          # Kernel Ridge Regressor
+│   ├── cubist_model.py       # Cubist-style model
+│   ├── gbrt_model.py        # Gradient Boosting Regressor
+│   ├── krr_model.py         # Kernel Ridge Regressor
 │   └── svr_model.py          # Support Vector Regressor
+│
 ├── preprocessing/
-│   ├── __init__.py
-│   ├── reflectance.py        # Raw reflectance / no transformation
+│   ├── **init**.py
+│   ├── reflectance.py        # Raw reflectance
 │   ├── absorbance.py         # -log10(R) transformation
 │   └── continuum_removal.py  # Convex hull normalization
-├── dataset/                  # Input spectral datasets (XLS/CSV)
-├── models_store/             # Saved trained ML models
-└── requirements.txt          # Python dependencies
-```
+│
+├── frontend/
+│   ├── components/
+│   │    ├── center_panel.py      # Model Results (main center panel)
+│   │    ├── leaderboard_panel.py # Leaderboard (sidebar)
+│   │    └── right_panel.py       # Diagnostics (right panel)
+│   ├── **init**.py               # Frontend package initialization
+│   ├── landing_page.py           # Landing page UI components
+│   └── app_page.py               # Results page (combined Model Results + Diagnostics)
+│
+├── dataset/                      # Input spectral datasets (CSV / XLS)
+├── models_store/                 # Saved trained ML models (joblib / pickle)
+├── leaderboard.json              # Persistent leaderboard state
+└── requirements.txt
+
+````
+
+> **Notes:**  
+> - `app.py` is the Streamlit entrypoint; it orchestrates navigation and imports the `frontend` package pages (`landing_page.py`, `app_page.py`).  
+> - `backend/main.py` contains the pipeline and exposes functions used by both frontend and backend modules.
 
 ---
 
-# 🔥 Key Features
+## 🔥 Key Features
 
-### ✔ Interactive Streamlit UI
-
-Three clean, modular pages:
-
-1. **Landing Page** – Data selection, preprocessing selection, and pipeline execution
-2. **Results Page** – Model leaderboard, tuning, retraining
-3. **Visualization Page** – Scatter plots, feature importance, wavelength variance, and more
+- **Two-page workflow** (Landing → Results) with a dynamic sidebar leaderboard.  
+- **Interactive visualizations** (Plotly) — Predicted vs Measured, Feature Importance, Band Sensitivity, Raw Spectra.  
+- **Per-model retraining** with editable hyperparameters (updates leaderboard in real time).  
+- **Modular codebase**: easy to add models or preprocessing functions.  
+- **Persistent leaderboard** using `leaderboard.json` so rankings survive restarts.
 
 ---
 
-# 🧠 Backend Architecture (`backend/main.py`)
+## 🧠 Backend Overview (`backend/main.py`)
 
-The backend contains all core ML operations in one centralized module:
+Main responsibilities:
 
-### **1. Dataset Management**
-
-* `get_available_datasets()`
-* `load_data()`
-
-### **2. Preprocessing**
-
-Applies transformations imported from `preprocessing/`:
-
-* `apply_reflectance()`
-* `apply_absorbance()`
-* `apply_continuum_removal()`
-
-### **3. Model Initialization**
-
-* `get_model(model_name, hyperparams)`
-
-### **4. Metrics Calculation**
-
-* R² (Coefficient of Determination)
-* RMSE (Root Mean Squared Error)
-* RPD (Residual Predictive Deviation)
-
-### **5. Training Pipelines**
-
-* `train_model()`
-* `run_full_pipeline()` → trains all 15 hyperparameter combinations
-* `run_single_pipeline()` → for targeted retraining
-
-### **6. Visualization Utilities**
-
-* `plot_scatter()` – Pred vs Actual
-* `plot_feature_importance()` – GBRT, Cubist, PLS
-* Additional spectral visualizations handled in frontend
+1. **Data loading** — utilities to list and load datasets from `dataset/`.  
+2. **Preprocessing** — wrappers that call `preprocessing/*.py` functions to produce model-ready data.  
+3. **Model orchestration** — functions to build, train, predict for each model in `models/`.  
+4. **Evaluation metrics** — R², RMSE, RPD, residual diagnostics.  
+5. **Pipeline execution** — `run_full_pipeline()` (runs all configured models) and `run_single_pipeline()` (for per-model retrain).  
+6. **Visualization helpers** — returns data for Plotly charts (center/right panels).
 
 ---
 
-# 🎨 Frontend Architecture (`frontend/`)
+## 🎨 Frontend Layout (`frontend/`)
 
-## **1. Landing Page**
+The frontend is split into reusable UI components under `frontend/components/` and page logic under `landing_page.py` and `app_page.py`.
 
-Handles:
+### Landing Page (`landing_page.py`)
+- Dataset selection & preview
+- Target property selection
+- Preprocessing choice
+- Buttons to run full pipeline or run a single model
 
-* Dataset selection
-* Identifying target property column
-* Choosing preprocessing method
-* Running full or single-model pipeline
-* Dataset preview
-
----
-
-## **2. Results Page**
-
-Displays:
-
-* Leaderboard table sorted by model metrics
-* Hyperparameter tuning forms auto-generated from MODEL_CONFIG
-* Buttons to retrain each model
-* Option to navigate to visualization
+### Results / App Page (`app_page.py`)
+- **Sidebar**: `leaderboard_panel.py` — dynamic leaderboard displaying model rank (R², RMSE, RPD)
+- **Center panel**: `center_panel.py` — Model Results (Predicted vs Measured, Feature Importance, Model Config, Retrain form)
+- **Right panel**: `right_panel.py` — Diagnostics (Raw Spectra, Band Sensitivity)
+- Retraining in the center panel updates model metrics and writes to `leaderboard.json`
 
 ---
 
-## **3. Visualization Page**
+## 🔬 Models (`models/`)
 
-Provides comprehensive spectral and model visualizations:
+Each model file exposes a consistent interface (for integration with `backend/main.py` and the frontend):
 
-### **Model-Based Visualizations**
-
-* Predicted vs Actual scatter plot
-* Feature importance (GBRT, Cubist, PLSR)
-
-### **Spectral Analysis Visualizations**
-
-* **Wavelength Variance Plot**
-  Shows variability across wavelengths in the spectral dataset
-* **Property–Wavelength Relationship**
-  Explores correlation between target property and spectral features
-* **Spectral Profiles**
-  Visualizes reflectance/absorbance for selected samples
-
----
-
-# 🔬 Models (`models/`)
-
-Each model is defined in its own file with:
-
-* `build_model()`
-* Training and prediction logic
-* Hyperparameters handled via `MODEL_CONFIG`
+- `build_model(hyperparams)`  
+- `train(X_train, y_train)`  
+- `predict(X)`  
+- `get_feature_importance()` (where available)
 
 Models included:
+- **PLSR** — Partial Least Squares Regression, widely used in spectroscopy.  
+- **Cubist-style** — Rule-based, interpretable regression.  
+- **GBRT** — Gradient Boosting Regressor for non-linear patterns.  
+- **KRR** — Kernel Ridge Regression for smooth non-linear mapping.  
+- **SVR** — Support Vector Regression.
 
-| Model       | Description                               |
-| ----------- | ----------------------------------------- |
-| PLSR        | Linear regression using latent components |
-| Cubist-like | Tree rule-based regression                |
-| GBRT        | Gradient Boosting                         |
-| KRR         | Kernel Ridge Regression                   |
-| SVR         | Support Vector Regression                 |
-
-All hyperparameters are exposed to the UI through structured configuration dictionaries.
+All model hyperparameters are surfaced to the UI for tuning.
 
 ---
 
-# ⚙️ Preprocessing (`preprocessing/`)
+## ⚙️ Preprocessing (`preprocessing/`)
 
-| Method            | Description                                  |
-| ----------------- | -------------------------------------------- |
-| Reflectance       | Uses raw reflectance values                  |
-| Absorbance        | -log10(R) transformation                     |
-| Continuum Removal | Convex hull normalization for spectral shape |
+- `reflectance.py` — raw reflectance handling and normalization.  
+- `absorbance.py` — converts reflectance to absorbance using `-log10(R)`.  
+- `continuum_removal.py` — convex-hull continuum removal to emphasize absorption features.
 
-Each preprocessing method returns a transformed DataFrame ready for model training.
+Preprocessing modules return transformed DataFrames ready for model training and plotting.
 
 ---
 
-# 🚀 Running the Application
+## 📦 leaderboard.json
 
-### **1. Install dependencies**
+`leaderboard.json` stores persistent leaderboard entries (model name, metrics, metadata, timestamp). The app reads from and writes to this file when models are trained or retrained so leaderboard ranking persists across restarts.
 
-```
+---
+
+## 🚀 How to Run
+
+1. Clone repository:
+```bash
+git clone https://github.com/Anurag-Kacholiya/Soil_Modeler
+cd Soil_Modeler
+````
+
+2. Install dependencies:
+
+```bash
 pip install -r requirements.txt
 ```
 
-### **2. Run the Streamlit app**
+3. Run the Streamlit application:
 
+```bash
+streamlit run app.py
 ```
-streamlit run main.py
-```
+
+4. Open the deployed app (if needed):
+   `https://soilmodeler.streamlit.app/`
 
 ---
 
-# 🧭 User Workflow Summary
+## 🧭 Typical User Workflow
 
-1. Open app → select dataset
-2. Choose preprocessing + target property
-3. Run full pipeline or single model
-4. View results + tune hyperparameters
-5. Navigate to visualization page for insights
-6. Download results or trained models
-
----
-
-# 🧾 Benefits of This Modular Architecture
-
-* **Separation of concerns**
-  UI, models, preprocessing, and backend are fully isolated.
-
-* **Scalability**
-  New models or preprocessing methods can be added easily.
-
-* **Maintainability**
-  Clear folder separation enables easier navigation.
-
-* **Testing**
-  Individual modules can be unit-tested independently.
-
-* **Developer collaboration**
-  Multiple team members can work on separate modules without conflicts.
+1. Launch `app.py` → Landing page loads.
+2. Select dataset and target property.
+3. Choose preprocessing method (Reflectance / Absorbance / Continuum Removal).
+4. Preview spectral data and run pipeline.
+5. Results page opens with leaderboard in sidebar.
+6. Select a model to inspect center panel (Pred vs Measured / Feature Importance).
+7. Use right panel for Diagnostics (Raw Spectra, Band Sensitivity).
+8. Retrain models from the center panel — updated metrics persist to `leaderboard.json`.
 
 ---
 
-# 🧩 Technologies Used
+## 🧾 Why This Design
 
-* **Python 3.10+**
-* **Streamlit** (UI)
-* **Pandas / NumPy** (Data handling)
-* **Scikit-learn** (Machine Learning)
-* **Matplotlib** (Plots)
-* **Joblib** (Model persistence)
+* **Accurate & fast**: supports rapid, non-destructive soil property estimation via hyperspectral data.
+* **User-centric**: streamlined two-page UI with clear separation of dataset setup and result exploration.
+* **Reproducible**: modular backend and persistent leaderboard enable repeatable experiments.
+* **Extensible**: new models, preprocessing steps, or visual components can be added with minimal changes.
 
 ---
 
-# 🎯 Conclusion
+## 🙌 Contributors (Team 35)
 
-This project provides a complete end-to-end solution for soil spectral modeling — from dataset loading and preprocessing to model training, evaluation, and visualization.
-
-The Phase-2 redesign resulted in a **cleaner, modular, efficient system** highly suitable for ML experimentation and spectral analysis.
-
----
-
-# 🙌 Contributors
-
-**Team 35 – SSD Course Project**
-- Anurag Kacholiya - 2025202025
-- Vadali S S Bharadwaja - 2025204012
-- Afzal Basha Shaik - 2025201097
-- Prabhash Pradhan - 2025201089
-- Aringi Vinay Chaitanya - 2025201041
+* **Anurag Kacholiya** (2025202025) — Preprocessing, documentation, general integration
+* **V. S. S. Bharadwaja** (2025204012) — Backend engineering, pipeline logic, testing
+* **Afzal Basha Shaik** (2025201097) — Frontend visualizations, Plotly integration, `app_page.py` components
+* **Prabhash Pradhan** (2025201089) — ML models, hyperparameter tuning
+* **Aringi Vinay Chaitanya** (2025201041) — Landing page, frontend structure, `app.py` integration
