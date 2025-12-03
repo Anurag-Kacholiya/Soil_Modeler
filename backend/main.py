@@ -1,7 +1,7 @@
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from sklearn.base import clone
 import streamlit as st
@@ -11,15 +11,13 @@ import joblib
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-from sklearn.model_selection import KFold, RandomizedSearchCV
+from sklearn.model_selection import KFold, RandomizedSearchCV, LeaveOneOut
 from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.inspection import permutation_importance
 
-# 🔹 Plotly for interactive visualizations
 import plotly.graph_objects as go
 import plotly.express as px
 
-# --- Import modular configs ---
 from models import MODEL_CONFIG
 from preprocessing import PREPROCESSING_METHODS
 
@@ -42,7 +40,9 @@ def preprocess_data(X, method_key: str):
         if not isinstance(X_prep, pd.DataFrame):
             X_prep = pd.DataFrame(X_prep, columns=X.columns)
 
-        st.write(f"✅ Preprocessing complete: {X_prep.shape[0]} samples × {X_prep.shape[1]} features")
+        st.write(
+            f"✅ Preprocessing complete: {X_prep.shape[0]} samples × {X_prep.shape[1]} features"
+        )
         return X_prep
 
     except Exception as e:
@@ -53,21 +53,23 @@ def preprocess_data(X, method_key: str):
 # ======================================================
 # 📂 Directory Setup
 # ======================================================
-DATA_DIR = Path('dataset')
-MODELS_DIR = Path('models_store')
-LEADERBOARD_FILE = Path('leaderboard.json')
+DATA_DIR = Path("dataset")
+MODELS_DIR = Path("models_store")
+LEADERBOARD_FILE = Path("leaderboard.json")
 
 DATA_DIR.mkdir(exist_ok=True)
 MODELS_DIR.mkdir(exist_ok=True)
 
+
 def load_leaderboard():
+    """Load leaderboard JSON or return empty DataFrame."""
     if LEADERBOARD_FILE.exists():
         try:
-            df = pd.read_json(LEADERBOARD_FILE)
+            return pd.read_json(LEADERBOARD_FILE)
         except Exception as e:
             st.error(f"Failed to read leaderboard: {e}")
             return pd.DataFrame()
-    return df
+    return pd.DataFrame()
 
 
 # ======================================================
@@ -75,7 +77,9 @@ def load_leaderboard():
 # ======================================================
 def get_available_datasets():
     """Return CSV/XLS/XLSX files in dataset/"""
-    files = list(DATA_DIR.glob('*.csv')) + list(DATA_DIR.glob('*.xls')) + list(DATA_DIR.glob('*.xlsx'))
+    files = list(DATA_DIR.glob("*.csv")) + list(DATA_DIR.glob("*.xls")) + list(
+        DATA_DIR.glob("*.xlsx")
+    )
     return [f.name for f in files]
 
 
@@ -102,21 +106,15 @@ def calculate_metrics(y_true, y_pred):
     r2 = r2_score(y_true, y_pred)
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     rpd = np.std(y_true) / rmse if rmse != 0 else np.nan
-    return {'r2': r2, 'rmse': rmse, 'rpd': rpd}
+    return {"r2": r2, "rmse": rmse, "rpd": rpd}
 
 
-def train_model(X, y, model_builder, hyperparams):
-    """
-    Train model using 5-fold CV and optionally RandomizedSearchCV for tuning.
-    If hyperparams contain lists/tuples -> tuning is triggered.
-    """
+def train_model(X, y, model_builder, hyperparams, cv_method="5-Fold (Default)", test_split=None):
 
-    # ---- Detect if tuning needed ----
     tuning_enabled = any(isinstance(v, (list, tuple)) for v in hyperparams.values())
 
     if tuning_enabled:
         base_model = model_builder()
-
         search = RandomizedSearchCV(
             estimator=base_model,
             param_distributions=hyperparams,
@@ -130,46 +128,54 @@ def train_model(X, y, model_builder, hyperparams):
         model = search.best_estimator_
         best_params = search.best_params_
     else:
-        # Normal fixed-parameter training
         model = model_builder(**hyperparams)
-        model.fit(X, y)
         best_params = hyperparams
 
-    # ---- 5-Fold OOF evaluation ----
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    # ---------------- CROSS VALIDATION ----------------
+    if cv_method == "10-Fold":
+        cv = KFold(n_splits=10, shuffle=True, random_state=42)
+    elif cv_method == "Leave-One-Out":
+        cv = LeaveOneOut()
+    elif cv_method == "Train/Test Split":
+        split = test_split / 100
+        n = len(y)
+        split_index = int(n * (1 - split))
+        X_train, X_test = X.iloc[:split_index], X.iloc[split_index:]
+        y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        metrics = calculate_metrics(y_test, preds)
+        model.fit(X, y)
+        return model, metrics, y_test, preds, best_params
+    else:
+        cv = KFold(n_splits=5, shuffle=True, random_state=42)
+
     oof_preds = np.zeros(len(y))
     oof_trues = np.zeros(len(y))
 
-    for tr, te in kf.split(X):
-        X_train, X_test = X.iloc[tr], X.iloc[te]
-        y_train, y_test = y.iloc[tr], y.iloc[te]
+    for tr, te in cv.split(X):
+        model.fit(X.iloc[tr], y.iloc[tr])
+        preds = model.predict(X.iloc[te])
 
-        try:
-            model.fit(X_train, y_train)
-            preds = model.predict(X_test)
+        oof_preds[te] = preds
+        oof_trues[te] = y.iloc[te]
 
-            oof_preds[te] = preds
-            oof_trues[te] = y_test
-        except Exception as e:
-            st.warning(f"Fold failed: {e}")
-            oof_preds[te] = np.nan
-            oof_trues[te] = y_test
-
-    # Metrics
-    mask = ~np.isnan(oof_preds)
-    metrics = calculate_metrics(oof_trues[mask], oof_preds[mask])
-
-    # Final training on full data
+    metrics = calculate_metrics(oof_trues, oof_preds)
     model.fit(X, y)
-
     return model, metrics, oof_trues, oof_preds, best_params
+
 
 
 # ======================================================
 # 🧩 Pipelines
 # ======================================================
-def run_full_pipeline(dataset_name, target_column_name, target_property_label,
-                      progress_callback=None, update_progress=None):
+def run_full_pipeline(
+    dataset_name,
+    target_column_name,
+    target_property_label,
+    progress_callback=None,
+    update_progress=None,
+):
     """
     Train all models with all preprocessing variants.
     Append results to leaderboard.json instead of overwriting.
@@ -185,16 +191,16 @@ def run_full_pipeline(dataset_name, target_column_name, target_property_label,
     for prep_key, prep_func in PREPROCESSING_METHODS.items():
         X_prep = prep_func(X)
         for model_name, cfg in MODEL_CONFIG.items():
-
             if progress_callback is not None:
                 progress_callback(model_name=model_name, prep_key=prep_key)
 
-            defaults = {p['name']: p['values'] for p in cfg['params']}
+            # Use list of values -> triggers RandomizedSearchCV
+            defaults = {p["name"]: p.get("values", [p.get("default")]) for p in cfg["params"]}
 
             try:
-                model_builder = cfg.get('builder') or cfg.get('model')
+                model_builder = cfg.get("builder") or cfg.get("model")
                 model, metrics, y_true, y_pred, best_params = train_model(
-                    X_prep, y, model_builder, defaults
+                    X_prep, y, model_builder, defaults, cv_method="5-Fold"
                 )
 
                 model_id = f"{dataset_name.split('.')[0]}_{target_property_label}_{prep_key}_{model_name}".lower()
@@ -202,20 +208,22 @@ def run_full_pipeline(dataset_name, target_column_name, target_property_label,
                 np.save(MODELS_DIR / f"{model_id}_y_true.npy", y_true)
                 np.save(MODELS_DIR / f"{model_id}_y_pred.npy", y_pred)
 
-                all_results.append({
-                    'model_id': model_id,
-                    'dataset': str(dataset_name),
-                    'target': str(target_property_label),
-                    'target_column': str(target_column_name),
-                    'preprocessing_key': prep_key,
-                    'preprocessing': prep_key,
-                    'model': model_name,
-                    **metrics,
-                    'pickle_path': str(MODELS_DIR / f"{model_id}.pkl"),
-                    'y_true_path': str(MODELS_DIR / f"{model_id}_y_true.npy"),
-                    'y_pred_path': str(MODELS_DIR / f"{model_id}_y_pred.npy"),
-                    'hyperparameters': best_params
-                })
+                all_results.append(
+                    {
+                        "model_id": model_id,
+                        "dataset": str(dataset_name),
+                        "target": str(target_property_label),
+                        "target_column": str(target_column_name),
+                        "preprocessing_key": prep_key,
+                        "preprocessing": prep_key,
+                        "model": model_name,
+                        **metrics,
+                        "pickle_path": str(MODELS_DIR / f"{model_id}.pkl"),
+                        "y_true_path": str(MODELS_DIR / f"{model_id}_y_true.npy"),
+                        "y_pred_path": str(MODELS_DIR / f"{model_id}_y_pred.npy"),
+                        "hyperparameters": best_params,
+                    }
+                )
 
             except Exception as e:
                 print(f"Failed to train {model_name} with {prep_key}: {e}")
@@ -232,14 +240,15 @@ def run_full_pipeline(dataset_name, target_column_name, target_property_label,
     else:
         combined = df
 
-    combined.to_json(LEADERBOARD_FILE, orient='records', indent=2)
+    combined.to_json(LEADERBOARD_FILE, orient="records", indent=2)
 
     return df
 
 
-
 @st.cache_data(show_spinner="Retraining model...")
-def run_single_pipeline(dataset_name, target_column_name, target_property_label, prep_key, model_name, hyperparameters):
+def run_single_pipeline(dataset_name, target_column_name, target_property_label,
+                        prep_key, model_name, hyperparameters,
+                        cv_method="5-Fold (Default)", test_split=None):
     """Retrain a single tuned model (does not overwrite full leaderboard)."""
     X, y = load_data(dataset_name, target_column_name)
     if X is None:
@@ -252,26 +261,31 @@ def run_single_pipeline(dataset_name, target_column_name, target_property_label,
 
     X_prep = prep_func(X)
     try:
-        model_builder = MODEL_CONFIG[model_name].get('builder') or MODEL_CONFIG[model_name]['model']
-        model, metrics, y_true, y_pred, best_params = train_model(X_prep, y, model_builder, hyperparameters)
+        model_builder = MODEL_CONFIG[model_name].get("builder") or MODEL_CONFIG[model_name]["model"]
+        model, metrics, y_true, y_pred, best_params = train_model(
+            X_prep, y, model_builder, hyperparameters, cv_method=cv_method, test_split=test_split
+        )
 
-        model_id = f"{dataset_name.split('.')[0]}_{target_property_label}_{prep_key}_{model_name}_tuned".lower()
+
+        model_id = (
+            f"{dataset_name.split('.')[0]}_{target_property_label}_{prep_key}_{model_name}_tuned".lower()
+        )
         joblib.dump(model, MODELS_DIR / f"{model_id}.pkl")
         np.save(MODELS_DIR / f"{model_id}_y_true.npy", y_true)
         np.save(MODELS_DIR / f"{model_id}_y_pred.npy", y_pred)
         return {
-            'model_id': model_id,
-            'dataset': str(dataset_name),
-            'target': str(target_property_label),
-            'target_column': str(target_column_name),
-            'preprocessing_key': prep_key,
-            'preprocessing': prep_key,
-            'model': model_name,
+            "model_id": model_id,
+            "dataset": str(dataset_name),
+            "target": str(target_property_label),
+            "target_column": str(target_column_name),
+            "preprocessing_key": prep_key,
+            "preprocessing": prep_key,
+            "model": model_name,
             **metrics,
-            'pickle_path': str(MODELS_DIR / f"{model_id}.pkl"),
-            'y_true_path': str(MODELS_DIR / f"{model_id}_y_true.npy"),
-            'y_pred_path': str(MODELS_DIR / f"{model_id}_y_pred.npy"),
-            'hyperparameters': best_params
+            "pickle_path": str(MODELS_DIR / f"{model_id}.pkl"),
+            "y_true_path": str(MODELS_DIR / f"{model_id}_y_true.npy"),
+            "y_pred_path": str(MODELS_DIR / f"{model_id}_y_pred.npy"),
+            "hyperparameters": best_params,
         }
     except Exception as e:
         st.error(f"Retraining failed: {e}")
@@ -285,25 +299,29 @@ def plot_scatter_interactive(y_true, y_pred):
     """Interactive Predicted vs Actual scatter with identity line."""
     fig = go.Figure()
 
-    fig.add_trace(go.Scatter(
-        x=y_true,
-        y=y_pred,
-        mode="markers",
-        marker=dict(size=7, opacity=0.7),
-        hovertemplate="Actual: %{x:.3f}<br>Predicted: %{y:.3f}",
-        name="Predictions"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=y_true,
+            y=y_pred,
+            mode="markers",
+            marker=dict(size=7, opacity=0.7),
+            hovertemplate="Actual: %{x:.3f}<br>Predicted: %{y:.3f}",
+            name="Predictions",
+        )
+    )
 
     min_v = float(min(np.min(y_true), np.min(y_pred)))
     max_v = float(max(np.max(y_true), np.max(y_pred)))
 
-    fig.add_trace(go.Scatter(
-        x=[min_v, max_v],
-        y=[min_v, max_v],
-        mode="lines",
-        line=dict(dash="dash"),
-        name="Ideal Line"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[min_v, max_v],
+            y=[min_v, max_v],
+            mode="lines",
+            line=dict(dash="dash"),
+            name="Ideal Line",
+        )
+    )
 
     fig.update_layout(
         title="Predicted vs Actual",
@@ -311,7 +329,7 @@ def plot_scatter_interactive(y_true, y_pred):
         xaxis_title="Actual",
         yaxis_title="Predicted",
         width=750,
-        height=520
+        height=520,
     )
     return fig
 
@@ -423,8 +441,8 @@ def plot_feature_importance_interactive(model, X, y, band_names):
     return fig
 
 
+
 def plot_wavelength_variance_interactive(X, band_names):
-    """Variance of each wavelength band."""
     variances = X.var(axis=0)
     df = pd.DataFrame({"Band": band_names, "Variance": variances})
 
@@ -433,18 +451,21 @@ def plot_wavelength_variance_interactive(X, band_names):
         x="Band",
         y="Variance",
         title="Wavelength Variance",
-        template="plotly_dark"
+        template="plotly_dark",
     )
     fig.update_layout(xaxis=dict(tickangle=45))
     return fig
 
 
 def plot_property_correlation_interactive(X_prep, y_data, band_names):
-    """Correlation between each band and the soil property."""
-    corr = np.array([
-        np.corrcoef(X_prep.iloc[:, i], y_data)[0, 1] if np.std(X_prep.iloc[:, i]) > 0 else 0
-        for i in range(X_prep.shape[1])
-    ])
+    corr = np.array(
+        [
+            np.corrcoef(X_prep.iloc[:, i], y_data)[0, 1]
+            if np.std(X_prep.iloc[:, i]) > 0
+            else 0
+            for i in range(X_prep.shape[1])
+        ]
+    )
     df = pd.DataFrame({"Band": band_names, "Correlation": corr})
 
     fig = px.line(
@@ -452,21 +473,23 @@ def plot_property_correlation_interactive(X_prep, y_data, band_names):
         x="Band",
         y="Correlation",
         title="Property vs Wavelength Correlation",
-        template="plotly_dark"
+        template="plotly_dark",
     )
     fig.update_layout(xaxis=dict(tickangle=45))
     fig.add_hline(y=0, line_dash="dash")
     return fig
 
 
-def plot_spectral_profiles_interactive(X_prep, band_names=None, preprocess_key="reflectance", n_samples=12):
+def plot_spectral_profiles_interactive(
+    X_prep, band_names=None, preprocess_key="reflectance", n_samples=12
+):
     if band_names is None:
         band_names = list(X_prep.columns)
 
     y_label_map = {
         "reflectance": "Reflectance",
         "absorbance": "Absorbance (Log 1/R)",
-        "continuumremoval": "Continuum-Removed Signal"
+        "continuumremoval": "Continuum-Removed Signal",
     }
 
     y_label = y_label_map.get(preprocess_key.lower(), "Processed Value")
@@ -476,33 +499,35 @@ def plot_spectral_profiles_interactive(X_prep, band_names=None, preprocess_key="
 
     fig = go.Figure()
     for idx in indices:
-        fig.add_trace(go.Scatter(
-            x=list(range(len(band_names))),       # numeric x axis
-            y=X_prep.iloc[idx, :],
-            mode="lines",
-            opacity=0.65,
-            name=f"Sample {idx}"
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=list(range(len(band_names))),
+                y=X_prep.iloc[idx, :],
+                mode="lines",
+                opacity=0.65,
+                name=f"Sample {idx}",
+            )
+        )
 
     fig.update_layout(
         title=f"Spectral Profiles ({preprocess_key})",
         xaxis_title="Wavelength (Bands)",
         yaxis_title=y_label,
-        template="plotly_dark"
+        template="plotly_dark",
     )
 
     return fig
 
 
-
 def plot_band_accuracy_curve_interactive(model, X_prep, y, band_names):
-
     if hasattr(model, "feature_importances_"):
         importances = model.feature_importances_
     elif hasattr(model, "coef_"):
         importances = np.abs(model.coef_)
     else:
-        r = permutation_importance(model, X_prep, y, n_repeats=5, random_state=42, n_jobs=-1)
+        r = permutation_importance(
+            model, X_prep, y, n_repeats=5, random_state=42, n_jobs=-1
+        )
         importances = r.importances_mean
 
     importances = np.asarray(importances, dtype=float).flatten()
@@ -511,7 +536,9 @@ def plot_band_accuracy_curve_interactive(model, X_prep, y, band_names):
     order = np.argsort(importances)[::-1]
     n_features = X_prep.shape[1]
 
-    k_values = [k for k in [10, 15, 20, 25, 30, 40, 50, 60, 80, 100] if k <= n_features]
+    k_values = [
+        k for k in [10, 15, 20, 25, 30, 40, 50, 60, 80, 100] if k <= n_features
+    ]
 
     records = []
     kf = KFold(n_splits=3, shuffle=True, random_state=42)
@@ -535,7 +562,7 @@ def plot_band_accuracy_curve_interactive(model, X_prep, y, band_names):
                 mdl.fit(X_tr, y_tr)
                 preds = mdl.predict(X_te)
                 fold_scores.append(r2_score(y_te, preds))
-            except:
+            except Exception:
                 continue
 
         if fold_scores:
@@ -547,10 +574,17 @@ def plot_band_accuracy_curve_interactive(model, X_prep, y, band_names):
         return fig
 
     df_curve = pd.DataFrame(records)
-    fig = px.line(df_curve, x="Bands", y="R2", markers=True,
-                  title="R² vs Number of Bands (Top-k Bands)", template="plotly_dark")
+    fig = px.line(
+        df_curve,
+        x="Bands",
+        y="R2",
+        markers=True,
+        title="R² vs Number of Bands (Top-k Bands)",
+        template="plotly_dark",
+    )
     fig.update_layout(xaxis_title="Bands", yaxis_title="R²")
     return fig
+
 
 # ======================================================
 # 🚀 Streamlit Routing
